@@ -7,6 +7,11 @@ import YouTubePlayer from './components/YouTubePlayer';
 
 type SelectionMode = 'recent' | 'all';
 
+interface Filters {
+  minDuration: number; // in seconds
+  excludeKeywords: string[];
+}
+
 function App() {
   const [input, setInput] = useState('');
   const [currentVideo, setCurrentVideo] = useState<YouTubeVideo | null>(null);
@@ -16,37 +21,40 @@ function App() {
   
   const [channels, setChannels] = useState<YouTubeChannel[]>([]);
   const [mode, setMode] = useState<SelectionMode>('recent');
+  const [filters, setFilters] = useState<Filters>({
+    minDuration: 120, // Default 2 minutes
+    excludeKeywords: ['short', '#shorts', 'ショート']
+  });
   
+  const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isPrefetching, setIsPrefetching] = useState(false);
   const [autoPlay, setAutoPlay] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load channels from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem('yt-random-channels');
-    if (saved) {
-      try {
-        setChannels(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load saved channels', e);
-      }
+    const savedChannels = localStorage.getItem('yt-random-channels');
+    if (savedChannels) {
+      try { setChannels(JSON.parse(savedChannels)); } catch (e) { console.error(e); }
+    }
+    const savedFilters = localStorage.getItem('yt-random-filters');
+    if (savedFilters) {
+      try { setFilters(JSON.parse(savedFilters)); } catch (e) { console.error(e); }
     }
   }, []);
 
-  // Save channels to localStorage when changed
   useEffect(() => {
     localStorage.setItem('yt-random-channels', JSON.stringify(channels));
   }, [channels]);
 
+  useEffect(() => {
+    localStorage.setItem('yt-random-filters', JSON.stringify(filters));
+  }, [filters]);
+
   const fetchRandomVideoFromChannel = useCallback(async (channel: YouTubeChannel, m: SelectionMode) => {
-    if (m === 'recent') {
-      return await YouTubeService.getRandomVideoFromRecent(channel.playlistId);
-    } else {
-      const total = await YouTubeService.getPlaylistTotalItems(channel.playlistId);
-      return await YouTubeService.getRandomVideoFromAll(channel.playlistId, total);
-    }
-  }, []);
+    const total = await YouTubeService.getPlaylistTotalItems(channel.playlistId);
+    return await YouTubeService.getRandomFilteredVideo(channel.playlistId, m, total, filters);
+  }, [filters]);
 
   const prefetchNextVideo = useCallback(async (targetChannels: YouTubeChannel[], m: SelectionMode) => {
     if (targetChannels.length === 0) return;
@@ -70,7 +78,6 @@ function App() {
     setLoading(true);
     setError(null);
 
-    // Split by whitespace to support multiple inputs
     const inputs = input.split(/\s+/).filter(Boolean);
     const newChannels: YouTubeChannel[] = [...channels];
 
@@ -78,10 +85,7 @@ function App() {
       for (const val of inputs) {
         const parsed = parseYouTubeInput(val);
         if (!parsed) continue;
-
-        // Skip if already added
-        if (newChannels.some(c => c.id === parsed.value || c.customUrl?.includes(parsed.value))) continue;
-
+        if (newChannels.some(c => c.id === parsed.value)) continue;
         const details = await YouTubeService.getChannelDetails(parsed);
         newChannels.push(details);
       }
@@ -89,7 +93,6 @@ function App() {
       setChannels(newChannels);
       setInput('');
 
-      // If it's the first time adding channels, start playing
       if (currentVideo === null && newChannels.length > 0) {
         const randomChannel = newChannels[Math.floor(Math.random() * newChannels.length)];
         const video = await fetchRandomVideoFromChannel(randomChannel, mode);
@@ -139,8 +142,34 @@ function App() {
 
   return (
     <div className="container">
-      <h1 className="title">YouTube Random Player</h1>
+      <div className="header-top">
+        <h1 className="title">YouTube Random Player</h1>
+        <button className="settings-toggle" onClick={() => setShowSettings(!showSettings)}>
+          {showSettings ? '✕' : '⚙ Settings'}
+        </button>
+      </div>
       
+      {showSettings && (
+        <div className="settings-panel">
+          <div className="settings-group">
+            <label>Min Duration (seconds):</label>
+            <input 
+              type="number" 
+              value={filters.minDuration} 
+              onChange={(e) => setFilters({...filters, minDuration: parseInt(e.target.value) || 0})}
+            />
+          </div>
+          <div className="settings-group">
+            <label>Exclude Keywords (comma separated):</label>
+            <input 
+              type="text" 
+              value={filters.excludeKeywords.join(', ')} 
+              onChange={(e) => setFilters({...filters, excludeKeywords: e.target.value.split(',').map(s => s.trim()).filter(Boolean)})}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="mode-selector">
         <label className={`mode-button ${mode === 'recent' ? 'active' : ''}`}>
           <input type="radio" name="mode" value="recent" checked={mode === 'recent'} onChange={() => setMode('recent')} />
@@ -156,7 +185,7 @@ function App() {
         <input
           type="text"
           className="input"
-          placeholder="Add Channel URLs or IDs (space separated)"
+          placeholder="Add Channel URLs or IDs"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           disabled={loading}
@@ -175,14 +204,12 @@ function App() {
               <button className="remove-btn" onClick={() => removeChannel(channel.id)}>&times;</button>
             </div>
           ))}
-          {channels.length > 0 && (
-            <button className="clear-btn" onClick={() => { setChannels([]); setCurrentVideo(null); }}>Clear All</button>
-          )}
+          <button className="clear-btn" onClick={() => { setChannels([]); setCurrentVideo(null); }}>Clear All</button>
         </div>
       )}
 
       {error && <div className="error">{error}</div>}
-      {loading && <div className="loading">Loading...</div>}
+      {loading && <div className="loading">Loading Filtering Videos...</div>}
 
       {currentVideo && currentVideoChannel && (
         <div className="video-info">
@@ -204,14 +231,14 @@ function App() {
           <div className="video-title">{currentVideo.title}</div>
           
           <button className="button shuffle-button" onClick={handleShuffle} disabled={loading}>
-            {isPrefetching && !nextVideo ? 'Fetching Next...' : 'Another Video'}
+            {isPrefetching && !nextVideo ? 'Filtering Next...' : 'Another Video'}
           </button>
         </div>
       )}
 
       {channels.length === 0 && !loading && !error && (
         <div className="instructions">
-          Add one or more YouTube channels to start the random player.
+          Add YouTube channels to start. (Shorts are filtered by default)
         </div>
       )}
     </div>

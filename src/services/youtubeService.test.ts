@@ -4,13 +4,17 @@ import { YouTubeService } from './youtubeService';
 describe('YouTubeService', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    // import.meta.env.VITE_YOUTUBE_API_KEY をモックする必要があるかもしれない
   });
 
-  it('getUploadsPlaylistId should return playlist ID', async () => {
+  it('getChannelDetails should return channel info', async () => {
     const mockResponse = {
       items: [
         {
+          id: 'UC-lHJZR3Gqxm24_Vd_AJ5Yw',
+          snippet: {
+            title: 'Test Channel',
+            thumbnails: { default: { url: 'icon-url' } }
+          },
           contentDetails: {
             relatedPlaylists: {
               uploads: 'UUC-lHJZR3Gqxm24_Vd_AJ5Yw'
@@ -23,9 +27,11 @@ describe('YouTubeService', () => {
       json: () => Promise.resolve(mockResponse)
     });
 
-    const result = await YouTubeService.getUploadsPlaylistId('UC-lHJZR3Gqxm24_Vd_AJ5Yw');
-    expect(result).toBe('UUC-lHJZR3Gqxm24_Vd_AJ5Yw');
-    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('channels?part=contentDetails&id=UC-lHJZR3Gqxm24_Vd_AJ5Yw'));
+    const result = await YouTubeService.getChannelDetails({ type: 'id', value: 'UC-lHJZR3Gqxm24_Vd_AJ5Yw' });
+    expect(result.id).toBe('UC-lHJZR3Gqxm24_Vd_AJ5Yw');
+    expect(result.title).toBe('Test Channel');
+    expect(result.playlistId).toBe('UUC-lHJZR3Gqxm24_Vd_AJ5Yw');
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('channels?part=id,snippet,contentDetails&id=UC-lHJZR3Gqxm24_Vd_AJ5Yw'));
   });
 
   it('getPlaylistTotalItems should return total items', async () => {
