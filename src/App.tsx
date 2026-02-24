@@ -131,6 +131,10 @@ function App() {
   }, [channels, nextVideo, nextVideoChannel, mode, fetchRandomVideoFromChannel, prefetchNextVideo]);
 
   const removeChannel = (id: string) => {
+    const channelToRemove = channels.find(c => c.id === id);
+    if (channelToRemove) {
+      YouTubeService.clearCache(channelToRemove.playlistId);
+    }
     setChannels(prev => prev.filter(c => c.id !== id));
   };
 
@@ -204,7 +208,11 @@ function App() {
               <button className="remove-btn" onClick={() => removeChannel(channel.id)}>&times;</button>
             </div>
           ))}
-          <button className="clear-btn" onClick={() => { setChannels([]); setCurrentVideo(null); }}>Clear All</button>
+          <button className="clear-btn" onClick={() => { 
+            YouTubeService.clearCache();
+            setChannels([]); 
+            setCurrentVideo(null); 
+          }}>Clear All</button>
         </div>
       )}
 

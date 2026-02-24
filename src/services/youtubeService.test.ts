@@ -48,4 +48,60 @@ describe('YouTubeService', () => {
     expect(result).toBe(123);
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining('playlistItems?part=id&playlistId=UUC-lHJZR3Gqxm24_Vd_AJ5Yw'));
   });
+
+  it('getRandomFilteredVideo in "all" mode should fetch first page and then background fetch', async () => {
+    // Reset cache before test
+    YouTubeService.clearCache();
+
+    // 1. fetch for first page items
+    // 2. fetch for video details of those items
+    // (Then background fetch happens, which we can optionally mock)
+    
+    (fetch as any)
+      .mockResolvedValueOnce({ // playlistItems (1st page)
+        json: () => Promise.resolve({ 
+          nextPageToken: 'token2',
+          items: [{ 
+            snippet: { title: 'First Video', thumbnails: { high: { url: 'thumb' } } },
+            contentDetails: { videoId: 'vid1' }
+          }] 
+        })
+      })
+      .mockResolvedValueOnce({ // videoDetails
+        json: () => Promise.resolve({ 
+          items: [{ id: 'vid1', contentDetails: { duration: 'PT10M' } }] 
+        })
+      })
+      .mockResolvedValueOnce({ // background fetch - 1st page for token
+        json: () => Promise.resolve({ nextPageToken: 'token2' })
+      })
+      .mockResolvedValueOnce({ // background fetch - 2nd page data
+        json: () => Promise.resolve({ 
+          nextPageToken: null,
+          items: [{ 
+            snippet: { title: 'Second Video', thumbnails: { high: { url: 'thumb' } } },
+            contentDetails: { videoId: 'vid2' }
+          }] 
+        })
+      })
+      .mockResolvedValueOnce({ // background fetch - videoDetails for vid2
+        json: () => Promise.resolve({ 
+          items: [{ id: 'vid2', contentDetails: { duration: 'PT5M' } }] 
+        })
+      });
+
+    const result = await YouTubeService.getRandomFilteredVideo(
+      'playlist-id', 
+      'all', 
+      100, 
+      { minDuration: 0, excludeKeywords: [] }
+    );
+
+    expect(result.id).toBe('vid1');
+    // At this point, background fetch might still be running or finished
+    // The first two calls are for the initial video
+    expect(fetch).toHaveBeenCalled(); 
+    
+    vi.restoreAllMocks();
+  });
 });

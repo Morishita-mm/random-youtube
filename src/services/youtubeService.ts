@@ -17,6 +17,8 @@ export interface YouTubeChannel {
 }
 
 export class YouTubeService {
+  private static videoCache: Record<string, { videos: YouTubeVideo[], isFull: boolean, total: number }> = {};
+
   /**
    * ISO 8601 期間文字列を秒数に変換します
    */
@@ -62,6 +64,17 @@ export class YouTubeService {
   }
 
   /**
+   * キャッシュをクリアします（チャンネルリストが変更された場合などに使用）
+   */
+  static clearCache(playlistId?: string) {
+    if (playlistId) {
+      delete this.videoCache[playlistId];
+    } else {
+      this.videoCache = {};
+    }
+  }
+
+  /**
    * フィルタ条件に合う動画を取得します
    */
   static async getRandomFilteredVideo(
@@ -70,64 +83,125 @@ export class YouTubeService {
     totalItems: number,
     filters: { minDuration: number; excludeKeywords: string[] }
   ): Promise<YouTubeVideo> {
-    let attempts = 0;
-    const maxAttempts = mode === 'recent' ? 1 : 5; // recent は一括取得するので1回、all は都度取得なので5回まで
+    // キャッシュの初期化
+    if (!this.videoCache[playlistId]) {
+      this.videoCache[playlistId] = { videos: [], isFull: false, total: totalItems };
+    }
 
     if (mode === 'recent') {
-      const response = await fetch(`${API_BASE_URL}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50&key=${API_KEY}`);
-      const data = await response.json();
-      const items = data.items || [];
-      
-      // 動画の長さを取得するために video IDs を抽出
-      const videoIds = items.map((i: any) => i.contentDetails.videoId).join(',');
-      const videoDetails = await this.getVideoDetails(videoIds);
-      
-      const filtered = items.filter((item: any) => {
-        const details = videoDetails[item.contentDetails.videoId];
-        if (!details) return false;
+      // 最初の50件から取得（キャッシュがあれば利用、なければ取得）
+      let items = this.videoCache[playlistId].videos.slice(0, 50);
+      if (items.length === 0) {
+        const response = await fetch(`${API_BASE_URL}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50&key=${API_KEY}`);
+        const data = await response.json();
+        const rawItems = data.items || [];
         
-        const duration = this.parseISODuration(details.duration);
-        const title = item.snippet.title.toLowerCase();
+        // 動画の長さを取得するために video IDs を抽出
+        const videoIds = rawItems.map((i: any) => i.contentDetails.videoId).join(',');
+        const videoDetails = await this.getVideoDetails(videoIds);
         
+        items = rawItems.map((item: any) => ({
+          id: item.contentDetails.videoId,
+          title: item.snippet.title,
+          thumbnailUrl: item.snippet.thumbnails.high.url,
+          duration: videoDetails[item.contentDetails.videoId]?.duration
+        }));
+        
+        // 最初の50件をキャッシュに保存（全期間取得の足がかりにする）
+        this.videoCache[playlistId].videos = [...items];
+      }
+
+      const filtered = items.filter(video => {
+        if (!video.duration) return false;
+        const duration = this.parseISODuration(video.duration);
+        const title = video.title.toLowerCase();
         const isLongEnough = duration >= filters.minDuration;
         const hasNoExcludedKeywords = !filters.excludeKeywords.some(kw => title.includes(kw.toLowerCase()));
-        
         return isLongEnough && hasNoExcludedKeywords;
       });
 
       if (filtered.length === 0) throw new Error('No videos match filters in recent 50');
-      const item = filtered[Math.floor(Math.random() * filtered.length)];
-      return {
+      return filtered[Math.floor(Math.random() * filtered.length)];
+
+    } else {
+      // 'all' mode
+      // キャッシュが空なら、まず最初の50件を取得して1本目を即座に返す（バックグラウンドで全件取得開始）
+      if (this.videoCache[playlistId].videos.length === 0) {
+        const video = await this.getRandomFilteredVideo(playlistId, 'recent', totalItems, filters);
+        // バックグラウンドで全件取得を開始
+        this.fetchAllPlaylistItemsInBackground(playlistId);
+        return video;
+      }
+
+      // キャッシュが全件揃っていない場合は、現在あるキャッシュから選ぶ（並行して取得が進んでいる）
+      // または、もし最初の50件取得直後なら、全件取得を待つのではなく、現在あるキャッシュから返す
+      const sourceList = this.videoCache[playlistId].videos;
+      const filtered = sourceList.filter(video => {
+        if (!video.duration) return false;
+        const duration = this.parseISODuration(video.duration);
+        const title = video.title.toLowerCase();
+        return duration >= filters.minDuration && !filters.excludeKeywords.some(kw => title.includes(kw.toLowerCase()));
+      });
+
+      if (filtered.length > 0) {
+        // 全件取得が終わっていない場合も、一旦今ある中からランダムに返す
+        const video = filtered[Math.floor(Math.random() * filtered.length)];
+        
+        // まだ全件取得が始まっていない、かつ完了もしていない場合は開始する
+        if (!this.videoCache[playlistId].isFull) {
+          this.fetchAllPlaylistItemsInBackground(playlistId);
+        }
+        
+        return video;
+      }
+
+      // フィルタに合うものが現在取得済みのリストにない場合、全件取得を待つか、再試行
+      if (!this.videoCache[playlistId].isFull) {
+        await this.fetchAllPlaylistItemsInBackground(playlistId); // ここでは完了を待つ
+        return this.getRandomFilteredVideo(playlistId, 'all', totalItems, filters); // 再試行
+      }
+
+      throw new Error('Failed to find a video matching filters in all history');
+    }
+  }
+
+  /**
+   * バックグラウンドで全件取得を行います
+   */
+  private static async fetchAllPlaylistItemsInBackground(playlistId: string): Promise<void> {
+    const cache = this.videoCache[playlistId];
+    if (cache.isFull) return;
+
+    // すでに取得が進行中かどうかを判定（簡易的に videos.length > 50 で判定）
+    if (cache.videos.length > 50) return;
+
+    let nextPageToken = '';
+    // 最初の50件はすでに取得済みのはずだが、pageToken を取得するために1回リクエストが必要
+    const firstRes = await fetch(`${API_BASE_URL}/playlistItems?part=id&playlistId=${playlistId}&maxResults=50&key=${API_KEY}`);
+    const firstData = await firstRes.json();
+    nextPageToken = firstData.nextPageToken;
+
+    while (nextPageToken) {
+      const response = await fetch(`${API_BASE_URL}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50&pageToken=${nextPageToken}&key=${API_KEY}`);
+      const data = await response.json();
+      
+      const rawItems = data.items || [];
+      const videoIds = rawItems.map((i: any) => i.contentDetails.videoId).join(',');
+      const videoDetails = await this.getVideoDetails(videoIds);
+      
+      const newVideos = rawItems.map((item: any) => ({
         id: item.contentDetails.videoId,
         title: item.snippet.title,
         thumbnailUrl: item.snippet.thumbnails.high.url,
-        duration: videoDetails[item.contentDetails.videoId].duration
-      };
-    } else {
-      // 'all' mode
-      while (attempts < maxAttempts) {
-        attempts++;
-        const randomIndex = Math.floor(Math.random() * totalItems);
-        const item = await this.fetchSinglePlaylistItem(playlistId, randomIndex);
-        const videoDetails = await this.getVideoDetails(item.contentDetails.videoId);
-        const details = videoDetails[item.contentDetails.videoId];
-        
-        if (details) {
-          const duration = this.parseISODuration(details.duration);
-          const title = item.snippet.title.toLowerCase();
-          
-          if (duration >= filters.minDuration && !filters.excludeKeywords.some(kw => title.includes(kw.toLowerCase()))) {
-            return {
-              id: item.contentDetails.videoId,
-              title: item.snippet.title,
-              thumbnailUrl: item.snippet.thumbnails.high.url,
-              duration: details.duration
-            };
-          }
-        }
-      }
-      throw new Error('Failed to find a video matching filters after several attempts');
+        duration: videoDetails[item.contentDetails.videoId]?.duration
+      }));
+
+      cache.videos = [...cache.videos, ...newVideos];
+      nextPageToken = data.nextPageToken;
     }
+
+    cache.isFull = true;
+    console.log(`Cache full for ${playlistId}: ${cache.videos.length} videos`);
   }
 
   private static async getVideoDetails(videoIds: string): Promise<Record<string, { duration: string }>> {
@@ -140,22 +214,9 @@ export class YouTubeService {
     return result;
   }
 
+  // 不要になったメソッド
   private static async fetchSinglePlaylistItem(playlistId: string, index: number): Promise<any> {
-    let currentPageToken = '';
-    let currentCount = 0;
-    const itemsPerPage = 50;
-
-    while (currentCount + itemsPerPage <= index) {
-      const response = await fetch(`${API_BASE_URL}/playlistItems?part=id&playlistId=${playlistId}&maxResults=${itemsPerPage}&pageToken=${currentPageToken}&key=${API_KEY}`);
-      const data = await response.json();
-      if (!data.nextPageToken) break;
-      currentPageToken = data.nextPageToken;
-      currentCount += itemsPerPage;
-    }
-
-    const response = await fetch(`${API_BASE_URL}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50&pageToken=${currentPageToken}&key=${API_KEY}`);
-    const data = await response.json();
-    const relativeIndex = index - currentCount;
-    return data.items[Math.min(relativeIndex, data.items.length - 1)];
+    // ...
   }
 }
+
