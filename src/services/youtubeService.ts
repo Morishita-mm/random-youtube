@@ -7,11 +7,19 @@ export interface YouTubeVideo {
   thumbnailUrl: string;
 }
 
+export interface YouTubeChannel {
+  id: string;
+  title: string;
+  customUrl?: string;
+  thumbnailUrl: string;
+  playlistId: string;
+}
+
 export class YouTubeService {
   /**
-   * チャンネル入力から、チャンネルIDとアップロード用プレイリストIDを一度に取得します
+   * チャンネル入力から、チャンネルの詳細情報を取得します
    */
-  static async getChannelDetails(input: { type: string; value: string }): Promise<{ channelId: string; playlistId: string }> {
+  static async getChannelDetails(input: { type: string; value: string }): Promise<YouTubeChannel> {
     let query = '';
     if (input.type === 'id') query = `id=${input.value}`;
     else if (input.type === 'handle') query = `forHandle=${input.value.substring(1)}`;
@@ -23,13 +31,17 @@ export class YouTubeService {
       query = `id=${searchData.items[0].id.channelId}`;
     }
 
-    const res = await fetch(`${API_BASE_URL}/channels?part=id,contentDetails&${query}&key=${API_KEY}`);
+    const res = await fetch(`${API_BASE_URL}/channels?part=id,snippet,contentDetails&${query}&key=${API_KEY}`);
     const data = await res.json();
     if (!data.items?.length) throw new Error('Channel not found');
     
+    const channel = data.items[0];
     return {
-      channelId: data.items[0].id,
-      playlistId: data.items[0].contentDetails.relatedPlaylists.uploads
+      id: channel.id,
+      title: channel.snippet.title,
+      customUrl: channel.snippet.customUrl,
+      thumbnailUrl: channel.snippet.thumbnails.default.url,
+      playlistId: channel.contentDetails.relatedPlaylists.uploads
     };
   }
 
@@ -64,7 +76,7 @@ export class YouTubeService {
   }
 
   /**
-   * 全動画からランダムに取得 (トークンを辿るため、動画数が多いと複数リクエストが発生)
+   * 全動画からランダムに取得
    */
   static async getRandomVideoFromAll(playlistId: string, totalItems: number): Promise<YouTubeVideo> {
     const randomIndex = Math.floor(Math.random() * totalItems);
@@ -73,7 +85,6 @@ export class YouTubeService {
     let currentCount = 0;
     const itemsPerPage = 50;
 
-    // 目的のインデックスが含まれるページまでトークンを辿る
     while (currentCount + itemsPerPage <= randomIndex) {
       const response = await fetch(
         `${API_BASE_URL}/playlistItems?part=id&playlistId=${playlistId}&maxResults=${itemsPerPage}&pageToken=${currentPageToken}&key=${API_KEY}`
@@ -89,7 +100,6 @@ export class YouTubeService {
     );
     const data = await response.json();
     
-    // 取得したページ内での相対インデックス
     const relativeIndex = randomIndex - currentCount;
     const item = data.items[Math.min(relativeIndex, data.items.length - 1)];
     

@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import './App.css';
 import { parseYouTubeInput } from './utils/youtube';
 import { YouTubeService } from './services/youtubeService';
-import type { YouTubeVideo } from './services/youtubeService';
+import type { YouTubeVideo, YouTubeChannel } from './services/youtubeService';
 import YouTubePlayer from './components/YouTubePlayer';
 
 type SelectionMode = 'recent' | 'all';
@@ -11,7 +11,7 @@ function App() {
   const [input, setInput] = useState('');
   const [currentVideo, setCurrentVideo] = useState<YouTubeVideo | null>(null);
   const [nextVideo, setNextVideo] = useState<YouTubeVideo | null>(null);
-  const [playlistId, setPlaylistId] = useState<string | null>(null);
+  const [activeChannel, setActiveChannel] = useState<YouTubeChannel | null>(null);
   const [totalItems, setTotalItems] = useState(0);
   const [mode, setMode] = useState<SelectionMode>('recent');
   
@@ -48,7 +48,7 @@ function App() {
     setError(null);
     setCurrentVideo(null);
     setNextVideo(null);
-    setPlaylistId(null);
+    setActiveChannel(null);
 
     try {
       const parsed = parseYouTubeInput(input);
@@ -57,7 +57,7 @@ function App() {
       const details = await YouTubeService.getChannelDetails(parsed);
       const total = await YouTubeService.getPlaylistTotalItems(details.playlistId);
       
-      setPlaylistId(details.playlistId);
+      setActiveChannel(details);
       setTotalItems(total);
       
       const firstVideo = await fetchVideo(details.playlistId, total, mode);
@@ -72,23 +72,23 @@ function App() {
   };
 
   const handleShuffle = useCallback(() => {
-    if (!playlistId) return;
+    if (!activeChannel) return;
 
     if (nextVideo) {
       setCurrentVideo(nextVideo);
       setNextVideo(null);
-      prefetchNextVideo(playlistId, totalItems, mode);
+      prefetchNextVideo(activeChannel.playlistId, totalItems, mode);
     } else {
       setLoading(true);
-      fetchVideo(playlistId, totalItems, mode)
+      fetchVideo(activeChannel.playlistId, totalItems, mode)
         .then((video) => {
           setCurrentVideo(video);
-          prefetchNextVideo(playlistId, totalItems, mode);
+          prefetchNextVideo(activeChannel.playlistId, totalItems, mode);
         })
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
     }
-  }, [playlistId, nextVideo, totalItems, mode, fetchVideo, prefetchNextVideo]);
+  }, [activeChannel, nextVideo, totalItems, mode, fetchVideo, prefetchNextVideo]);
 
   const onVideoEnd = useCallback(() => {
     if (autoPlay) {
@@ -141,20 +141,29 @@ function App() {
 
       {loading && <div className="loading">Loading...</div>}
 
-      {currentVideo && (
+      {currentVideo && activeChannel && (
         <div className="video-info">
-          <div className="controls-row">
-            <label className="toggle-container">
-              <input 
-                type="checkbox" 
-                checked={autoPlay} 
-                onChange={(e) => setAutoPlay(e.target.checked)} 
-              />
-              <span className="toggle-label">Auto Play Next</span>
-            </label>
+          <div className="player-header">
+            <div className="channel-badge">
+              <img src={activeChannel.thumbnailUrl} alt={activeChannel.title} className="channel-icon" />
+              <span className="channel-name">{activeChannel.title}</span>
+            </div>
+            <div className="controls-row">
+              <label className="toggle-container">
+                <input 
+                  type="checkbox" 
+                  checked={autoPlay} 
+                  onChange={(e) => setAutoPlay(e.target.checked)} 
+                />
+                <span className="toggle-label">Auto Play Next</span>
+              </label>
+            </div>
           </div>
+          
           <YouTubePlayer videoId={currentVideo.id} onEnd={onVideoEnd} />
+          
           <div className="video-title">{currentVideo.title}</div>
+          
           <button 
             className="button shuffle-button" 
             onClick={handleShuffle}
