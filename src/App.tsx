@@ -8,7 +8,7 @@ import YouTubePlayer from './components/YouTubePlayer';
 type SelectionMode = 'recent' | 'all';
 
 interface Filters {
-  minDuration: number; // in seconds
+  minDuration: number;
   excludeKeywords: string[];
 }
 
@@ -22,7 +22,7 @@ function App() {
   const [channels, setChannels] = useState<YouTubeChannel[]>([]);
   const [mode, setMode] = useState<SelectionMode>('recent');
   const [filters, setFilters] = useState<Filters>({
-    minDuration: 120, // Default 2 minutes
+    minDuration: 120,
     excludeKeywords: ['short', '#shorts', 'ショート']
   });
   
@@ -198,7 +198,7 @@ function App() {
       {channels.length > 0 && (
         <div className="channel-list">
           {channels.map(channel => (
-            <div key={channel.id} className="channel-chip">
+            <div key={channel.id} className={`channel-chip ${currentVideoChannel?.id === channel.id ? 'active' : ''}`}>
               <img src={channel.thumbnailUrl} alt={channel.title} />
               <span className="tooltip">{channel.title}</span>
               <button className="remove-btn" onClick={() => removeChannel(channel.id)}>&times;</button>
@@ -211,13 +211,12 @@ function App() {
       {error && <div className="error">{error}</div>}
       {loading && <div className="loading">Loading Filtering Videos...</div>}
 
-      {currentVideo && currentVideoChannel && (
+      {currentVideo && (
         <div className="video-info">
-          <div className="player-header">
-            <div className="channel-badge">
-              <img src={currentVideoChannel.thumbnailUrl} alt={currentVideoChannel.title} className="channel-icon" />
-              {channels.length === 1 && <span className="channel-name">{currentVideoChannel.title}</span>}
-            </div>
+          <YouTubePlayer videoId={currentVideo.id} onEnd={onVideoEnd} />
+          
+          <div className="video-title-row">
+            <div className="video-title">{currentVideo.title}</div>
             <div className="controls-row">
               <label className="toggle-container">
                 <input type="checkbox" checked={autoPlay} onChange={(e) => setAutoPlay(e.target.checked)} />
@@ -225,10 +224,6 @@ function App() {
               </label>
             </div>
           </div>
-          
-          <YouTubePlayer videoId={currentVideo.id} onEnd={onVideoEnd} />
-          
-          <div className="video-title">{currentVideo.title}</div>
           
           <button className="button shuffle-button" onClick={handleShuffle} disabled={loading}>
             {isPrefetching && !nextVideo ? 'Filtering Next...' : 'Another Video'}
