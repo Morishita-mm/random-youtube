@@ -16,13 +16,15 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, onEnd }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const onEndRef = useRef(onEnd);
+  const isReadyRef = useRef(false);
 
-  // 最新の onEnd コールバックを常に参照できるように更新
+  // コールバックを常に最新の状態に保つ
   useEffect(() => {
     onEndRef.current = onEnd;
   }, [onEnd]);
 
   useEffect(() => {
+    // API スクリプトの読み込み
     if (!window.YT) {
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
@@ -30,20 +32,15 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, onEnd }) => {
       firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
     }
 
-    const createPlayer = () => {
-      if (playerRef.current) {
-        try {
-          playerRef.current.destroy();
-        } catch (e) {
-          console.error('Error destroying player:', e);
-        }
-        playerRef.current = null;
-      }
+    const initPlayer = () => {
+      if (playerRef.current) return;
 
       if (!containerRef.current) return;
-      containerRef.current.innerHTML = '<div id="youtube-player-element"></div>';
+      // プレースホルダー要素を作成
+      const playerElement = document.createElement('div');
+      containerRef.current.appendChild(playerElement);
 
-      playerRef.current = new window.YT.Player('youtube-player-element', {
+      playerRef.current = new window.YT.Player(playerElement, {
         height: '100%',
         width: '100%',
         videoId: videoId,
@@ -54,8 +51,11 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, onEnd }) => {
           rel: 0,
         },
         events: {
+          onReady: () => {
+            isReadyRef.current = true;
+          },
           onStateChange: (event: any) => {
-            // YT.PlayerState.ENDED is 0
+            // 0: ENDED
             if (event.data === 0) {
               onEndRef.current?.();
             }
@@ -68,15 +68,29 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, onEnd }) => {
     };
 
     if (window.YT && window.YT.Player) {
-      createPlayer();
+      initPlayer();
     } else {
       const prevOnReady = window.onYouTubeIframeAPIReady;
       window.onYouTubeIframeAPIReady = () => {
         if (prevOnReady) prevOnReady();
-        createPlayer();
+        initPlayer();
       };
     }
 
+    return () => {
+      // ここでは destroy しない。コンポーネントが完全に消えるまで維持する。
+    };
+  }, []); // 空の依存配列で、マウント時に1回だけ初期化
+
+  // videoId が変わった際の処理
+  useEffect(() => {
+    if (playerRef.current && isReadyRef.current) {
+      playerRef.current.loadVideoById(videoId);
+    }
+  }, [videoId]);
+
+  // コンポーネントが完全にアンマウントされる時だけ破棄
+  useEffect(() => {
     return () => {
       if (playerRef.current) {
         try {
@@ -85,9 +99,10 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, onEnd }) => {
           // ignore
         }
         playerRef.current = null;
+        isReadyRef.current = false;
       }
     };
-  }, [videoId]); // videoId が変わるたびに再作成 (これにより確実に新しい動画が開始される)
+  }, []);
 
   return (
     <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', height: 0, backgroundColor: '#000' }}>

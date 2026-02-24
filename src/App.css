@@ -102,6 +102,25 @@ body {
   max-width: 100%;
 }
 
+.controls-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
+}
+
+.toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-label {
+  font-size: 1rem;
+  color: #ccc;
+}
+
 .video-title {
   font-size: 1.8rem;
   font-weight: bold;

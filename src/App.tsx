@@ -17,6 +17,7 @@ function App() {
   
   const [loading, setLoading] = useState(false);
   const [isPrefetching, setIsPrefetching] = useState(false);
+  const [autoPlay, setAutoPlay] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchVideo = useCallback(async (pId: string, t: number, m: SelectionMode) => {
@@ -89,6 +90,12 @@ function App() {
     }
   }, [playlistId, nextVideo, totalItems, mode, fetchVideo, prefetchNextVideo]);
 
+  const onVideoEnd = useCallback(() => {
+    if (autoPlay) {
+      handleShuffle();
+    }
+  }, [autoPlay, handleShuffle]);
+
   return (
     <div className="container">
       <h1 className="title">YouTube Random Player</h1>
@@ -136,7 +143,17 @@ function App() {
 
       {currentVideo && (
         <div className="video-info">
-          <YouTubePlayer videoId={currentVideo.id} />
+          <div className="controls-row">
+            <label className="toggle-container">
+              <input 
+                type="checkbox" 
+                checked={autoPlay} 
+                onChange={(e) => setAutoPlay(e.target.checked)} 
+              />
+              <span className="toggle-label">Auto Play Next</span>
+            </label>
+          </div>
+          <YouTubePlayer videoId={currentVideo.id} onEnd={onVideoEnd} />
           <div className="video-title">{currentVideo.title}</div>
           <button 
             className="button shuffle-button" 
