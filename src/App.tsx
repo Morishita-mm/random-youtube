@@ -8,21 +8,22 @@ import YouTubePlayer from './components/YouTubePlayer';
 function App() {
   const [input, setInput] = useState('');
   const [currentVideo, setCurrentVideo] = useState<YouTubeVideo | null>(null);
+  const [nextVideo, setNextVideo] = useState<YouTubeVideo | null>(null);
   const [playlistId, setPlaylistId] = useState<string | null>(null);
   const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [isPrefetching, setIsPrefetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchRandomVideo = useCallback(async (pId: string, total: number) => {
-    setLoading(true);
-    setError(null);
+  const prefetchNextVideo = useCallback(async (pId: string, total: number) => {
+    setIsPrefetching(true);
     try {
       const video = await YouTubeService.getRandomVideo(pId, total);
-      setCurrentVideo(video);
+      setNextVideo(video);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch video');
+      console.error('Failed to prefetch next video:', err);
     } finally {
-      setLoading(false);
+      setIsPrefetching(false);
     }
   }, []);
 
@@ -33,6 +34,7 @@ function App() {
     setLoading(true);
     setError(null);
     setCurrentVideo(null);
+    setNextVideo(null);
     setPlaylistId(null);
 
     try {
@@ -46,7 +48,11 @@ function App() {
       setPlaylistId(pId);
       setTotalItems(total);
       
-      await fetchRandomVideo(pId, total);
+      const firstVideo = await YouTubeService.getRandomVideo(pId, total);
+      setCurrentVideo(firstVideo);
+      
+      // Start prefetching the next one immediately
+      prefetchNextVideo(pId, total);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -55,8 +61,24 @@ function App() {
   };
 
   const handleShuffle = () => {
-    if (playlistId && totalItems > 0) {
-      fetchRandomVideo(playlistId, totalItems);
+    if (!playlistId || totalItems <= 0) return;
+
+    if (nextVideo) {
+      // Use the prefetched video
+      setCurrentVideo(nextVideo);
+      setNextVideo(null);
+      // Immediately start prefetching the next one
+      prefetchNextVideo(playlistId, totalItems);
+    } else {
+      // Fallback if prefetch hasn't finished (should be rare)
+      setLoading(true);
+      YouTubeService.getRandomVideo(playlistId, totalItems)
+        .then((video) => {
+          setCurrentVideo(video);
+          prefetchNextVideo(playlistId, totalItems);
+        })
+        .catch((err) => setError(err.message))
+        .finally(() => setLoading(false));
     }
   };
 
@@ -90,7 +112,7 @@ function App() {
             onClick={handleShuffle}
             disabled={loading}
           >
-            Another Video
+            {isPrefetching && !nextVideo ? 'Fetching Next...' : 'Another Video'}
           </button>
         </div>
       )}
