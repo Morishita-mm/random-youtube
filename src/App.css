@@ -10,18 +10,20 @@ body {
 }
 
 .container {
-  max-width: 800px;
-  width: 90%;
+  max-width: 1400px;
+  width: 90vw;
   text-align: center;
-  padding: 2rem;
+  padding: 3rem;
   background-color: #1a1a1a;
   border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.7);
+  box-sizing: border-box;
 }
 
 .title {
-  margin-bottom: 2rem;
+  margin-bottom: 2.5rem;
   color: #ff0000;
+  font-size: 3rem;
 }
 
 .mode-selector {
@@ -95,14 +97,16 @@ body {
 }
 
 .video-info {
-  margin-top: 1rem;
+  margin: 2rem auto;
   text-align: left;
+  max-width: 100%;
 }
 
 .video-title {
-  font-size: 1.2rem;
+  font-size: 1.8rem;
   font-weight: bold;
-  margin-top: 1rem;
+  margin-top: 1.5rem;
+  color: #fff;
 }
 
 .shuffle-button {
