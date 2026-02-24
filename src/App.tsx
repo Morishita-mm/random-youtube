@@ -5,27 +5,39 @@ import { YouTubeService } from './services/youtubeService';
 import type { YouTubeVideo } from './services/youtubeService';
 import YouTubePlayer from './components/YouTubePlayer';
 
+type SelectionMode = 'recent' | 'all';
+
 function App() {
   const [input, setInput] = useState('');
   const [currentVideo, setCurrentVideo] = useState<YouTubeVideo | null>(null);
   const [nextVideo, setNextVideo] = useState<YouTubeVideo | null>(null);
   const [playlistId, setPlaylistId] = useState<string | null>(null);
   const [totalItems, setTotalItems] = useState(0);
+  const [mode, setMode] = useState<SelectionMode>('recent');
+  
   const [loading, setLoading] = useState(false);
   const [isPrefetching, setIsPrefetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const prefetchNextVideo = useCallback(async (pId: string, total: number) => {
+  const fetchVideo = useCallback(async (pId: string, t: number, m: SelectionMode) => {
+    if (m === 'recent') {
+      return await YouTubeService.getRandomVideoFromRecent(pId);
+    } else {
+      return await YouTubeService.getRandomVideoFromAll(pId, t);
+    }
+  }, []);
+
+  const prefetchNextVideo = useCallback(async (pId: string, t: number, m: SelectionMode) => {
     setIsPrefetching(true);
     try {
-      const video = await YouTubeService.getRandomVideo(pId, total);
+      const video = await fetchVideo(pId, t, m);
       setNextVideo(video);
     } catch (err) {
       console.error('Failed to prefetch next video:', err);
     } finally {
       setIsPrefetching(false);
     }
-  }, []);
+  }, [fetchVideo]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,18 +53,16 @@ function App() {
       const parsed = parseYouTubeInput(input);
       if (!parsed) throw new Error('Invalid YouTube channel URL or ID');
 
-      const channelId = await YouTubeService.resolveChannelId(parsed);
-      const pId = await YouTubeService.getUploadsPlaylistId(channelId);
-      const total = await YouTubeService.getPlaylistTotalItems(pId);
-
-      setPlaylistId(pId);
+      const details = await YouTubeService.getChannelDetails(parsed);
+      const total = await YouTubeService.getPlaylistTotalItems(details.playlistId);
+      
+      setPlaylistId(details.playlistId);
       setTotalItems(total);
       
-      const firstVideo = await YouTubeService.getRandomVideo(pId, total);
+      const firstVideo = await fetchVideo(details.playlistId, total, mode);
       setCurrentVideo(firstVideo);
       
-      // Start prefetching the next one immediately
-      prefetchNextVideo(pId, total);
+      prefetchNextVideo(details.playlistId, total, mode);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -60,31 +70,52 @@ function App() {
     }
   };
 
-  const handleShuffle = () => {
-    if (!playlistId || totalItems <= 0) return;
+  const handleShuffle = useCallback(() => {
+    if (!playlistId) return;
 
     if (nextVideo) {
-      // Use the prefetched video
       setCurrentVideo(nextVideo);
       setNextVideo(null);
-      // Immediately start prefetching the next one
-      prefetchNextVideo(playlistId, totalItems);
+      prefetchNextVideo(playlistId, totalItems, mode);
     } else {
-      // Fallback if prefetch hasn't finished (should be rare)
       setLoading(true);
-      YouTubeService.getRandomVideo(playlistId, totalItems)
+      fetchVideo(playlistId, totalItems, mode)
         .then((video) => {
           setCurrentVideo(video);
-          prefetchNextVideo(playlistId, totalItems);
+          prefetchNextVideo(playlistId, totalItems, mode);
         })
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
     }
-  };
+  }, [playlistId, nextVideo, totalItems, mode, fetchVideo, prefetchNextVideo]);
 
   return (
     <div className="container">
       <h1 className="title">YouTube Random Player</h1>
+      
+      <div className="mode-selector">
+        <label className={`mode-button ${mode === 'recent' ? 'active' : ''}`}>
+          <input 
+            type="radio" 
+            name="mode" 
+            value="recent" 
+            checked={mode === 'recent'} 
+            onChange={() => setMode('recent')} 
+          />
+          Recent (Fast)
+        </label>
+        <label className={`mode-button ${mode === 'all' ? 'active' : ''}`}>
+          <input 
+            type="radio" 
+            name="mode" 
+            value="all" 
+            checked={mode === 'all'} 
+            onChange={() => setMode('all')} 
+          />
+          All History
+        </label>
+      </div>
+
       <form onSubmit={handleSearch} className="input-group">
         <input
           type="text"
@@ -119,7 +150,7 @@ function App() {
 
       {!currentVideo && !loading && !error && (
         <div className="instructions">
-          Enter a YouTube channel to play a random video from their history.
+          Enter a YouTube channel to play a random video from their {mode === 'recent' ? 'recent 50 videos' : 'entire history'}.
         </div>
       )}
     </div>

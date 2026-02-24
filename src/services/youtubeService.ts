@@ -9,46 +9,32 @@ export interface YouTubeVideo {
 
 export class YouTubeService {
   /**
-   * ユーザーの入力からチャンネル ID を解決します
+   * チャンネル入力から、チャンネルIDとアップロード用プレイリストIDを一度に取得します
    */
-  static async resolveChannelId(input: { type: string; value: string }): Promise<string> {
-    if (input.type === 'id') return input.value;
-
+  static async getChannelDetails(input: { type: string; value: string }): Promise<{ channelId: string; playlistId: string }> {
     let query = '';
-    if (input.type === 'handle') query = `forHandle=${input.value.substring(1)}`;
+    if (input.type === 'id') query = `id=${input.value}`;
+    else if (input.type === 'handle') query = `forHandle=${input.value.substring(1)}`;
     else if (input.type === 'user') query = `forUsername=${input.value}`;
     else if (input.type === 'custom') {
-      // カスタム URL の場合は search API を使用してチャンネルを探す必要がある
-      const response = await fetch(
-        `${API_BASE_URL}/search?part=id&q=${input.value}&type=channel&maxResults=1&key=${API_KEY}`
-      );
-      const data = await response.json();
-      if (!data.items?.length) throw new Error('Channel not found');
-      return data.items[0].id.channelId;
+      const searchRes = await fetch(`${API_BASE_URL}/search?part=id&q=${input.value}&type=channel&maxResults=1&key=${API_KEY}`);
+      const searchData = await searchRes.json();
+      if (!searchData.items?.length) throw new Error('Channel not found');
+      query = `id=${searchData.items[0].id.channelId}`;
     }
 
-    const response = await fetch(
-      `${API_BASE_URL}/channels?part=id&${query}&key=${API_KEY}`
-    );
-    const data = await response.json();
+    const res = await fetch(`${API_BASE_URL}/channels?part=id,contentDetails&${query}&key=${API_KEY}`);
+    const data = await res.json();
     if (!data.items?.length) throw new Error('Channel not found');
-    return data.items[0].id;
+    
+    return {
+      channelId: data.items[0].id,
+      playlistId: data.items[0].contentDetails.relatedPlaylists.uploads
+    };
   }
 
   /**
-   * チャンネル ID から「アップロード済み動画」プレイリスト ID を取得します
-   */
-  static async getUploadsPlaylistId(channelId: string): Promise<string> {
-    const response = await fetch(
-      `${API_BASE_URL}/channels?part=contentDetails&id=${channelId}&key=${API_KEY}`
-    );
-    const data = await response.json();
-    if (!data.items?.length) throw new Error('Channel not found');
-    return data.items[0].contentDetails.relatedPlaylists.uploads;
-  }
-
-  /**
-   * プレイリストから動画の総数を取得します
+   * プレイリスト内の動画総数を取得します
    */
   static async getPlaylistTotalItems(playlistId: string): Promise<number> {
     const response = await fetch(
@@ -59,20 +45,17 @@ export class YouTubeService {
   }
 
   /**
-   * プレイリストから指定されたインデックスの動画を取得します
+   * 最近の50本からランダムに取得
    */
-  static async getRandomVideo(playlistId: string, totalItems: number): Promise<YouTubeVideo> {
-    const randomIndex = Math.floor(Math.random() * totalItems);
-    const pageToken = await this.getPageTokenForIndex(playlistId, randomIndex);
-    
-    // maxResults は最大 50 なので、pageToken を使って特定の位置の動画を取得
+  static async getRandomVideoFromRecent(playlistId: string): Promise<YouTubeVideo> {
     const response = await fetch(
-      `${API_BASE_URL}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=1&pageToken=${pageToken}&key=${API_KEY}`
+      `${API_BASE_URL}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50&key=${API_KEY}`
     );
     const data = await response.json();
-    if (!data.items?.length) throw new Error('Video not found');
+    if (!data.items?.length) throw new Error('No videos found');
     
-    const item = data.items[0];
+    const randomIndex = Math.floor(Math.random() * data.items.length);
+    const item = data.items[randomIndex];
     return {
       id: item.contentDetails.videoId,
       title: item.snippet.title,
@@ -81,17 +64,17 @@ export class YouTubeService {
   }
 
   /**
-   * 特定のインデックスに対応する pageToken を取得します
-   * 注: 実際には YouTube API は特定のインデックスに直接ジャンプできないため、
-   * totalItems が多い場合は、50 件ずつスキップして該当のページまでトークンを辿る必要があります。
-   * ここでは簡易化のため、小規模〜中規模を想定した実装にします。
+   * 全動画からランダムに取得 (トークンを辿るため、動画数が多いと複数リクエストが発生)
    */
-  private static async getPageTokenForIndex(playlistId: string, index: number): Promise<string> {
+  static async getRandomVideoFromAll(playlistId: string, totalItems: number): Promise<YouTubeVideo> {
+    const randomIndex = Math.floor(Math.random() * totalItems);
+    
     let currentPageToken = '';
     let currentCount = 0;
     const itemsPerPage = 50;
 
-    while (currentCount + itemsPerPage <= index) {
+    // 目的のインデックスが含まれるページまでトークンを辿る
+    while (currentCount + itemsPerPage <= randomIndex) {
       const response = await fetch(
         `${API_BASE_URL}/playlistItems?part=id&playlistId=${playlistId}&maxResults=${itemsPerPage}&pageToken=${currentPageToken}&key=${API_KEY}`
       );
@@ -101,6 +84,19 @@ export class YouTubeService {
       currentCount += itemsPerPage;
     }
 
-    return currentPageToken;
+    const response = await fetch(
+      `${API_BASE_URL}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50&pageToken=${currentPageToken}&key=${API_KEY}`
+    );
+    const data = await response.json();
+    
+    // 取得したページ内での相対インデックス
+    const relativeIndex = randomIndex - currentCount;
+    const item = data.items[Math.min(relativeIndex, data.items.length - 1)];
+    
+    return {
+      id: item.contentDetails.videoId,
+      title: item.snippet.title,
+      thumbnailUrl: item.snippet.thumbnails.high.url,
+    };
   }
 }
