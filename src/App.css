@@ -245,21 +245,29 @@ body {
 
 .remove-btn {
   position: absolute;
-  top: -8px;
-  right: -8px;
-  width: 24px;
-  height: 24px;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: #ff4d4d;
-  color: white;
+  background: #333;
+  color: #fff;
   border: 2px solid var(--bg-color);
-  font-size: 16px;
+  font-size: 12px;
+  font-weight: bold;
   cursor: pointer;
   display: flex;
   justify-content: center;
   align-items: center;
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  z-index: 5;
+}
+
+.remove-btn:hover {
+  background: #ff4d4d;
+  transform: scale(1.1);
 }
 
 .channel-chip:hover .remove-btn {
