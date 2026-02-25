@@ -213,10 +213,5 @@ export class YouTubeService {
     });
     return result;
   }
-
-  // 不要になったメソッド
-  private static async fetchSinglePlaylistItem(playlistId: string, index: number): Promise<any> {
-    // ...
-  }
 }
 
