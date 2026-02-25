@@ -18,14 +18,14 @@ function App() {
   const [nextVideo, setNextVideo] = useState<YouTubeVideo | null>(null);
   const [nextVideoChannel, setNextVideoChannel] = useState<YouTubeChannel | null>(null);
   const [currentVideoChannel, setCurrentVideoChannel] = useState<YouTubeChannel | null>(null);
-  
+
   const [channels, setChannels] = useState<YouTubeChannel[]>([]);
   const [mode, setMode] = useState<SelectionMode>('recent');
   const [filters, setFilters] = useState<Filters>({
     minDuration: 120,
     excludeKeywords: ['short', '#shorts', 'ショート']
   });
-  
+
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isPrefetching, setIsPrefetching] = useState(false);
@@ -89,7 +89,7 @@ function App() {
         const details = await YouTubeService.getChannelDetails(parsed);
         newChannels.push(details);
       }
-      
+
       setChannels(newChannels);
       setInput('');
 
@@ -152,23 +152,23 @@ function App() {
           {showSettings ? '✕' : '⚙ Settings'}
         </button>
       </div>
-      
+
       {showSettings && (
         <div className="settings-panel">
           <div className="settings-group">
             <label>Min Duration (seconds):</label>
-            <input 
-              type="number" 
-              value={filters.minDuration} 
-              onChange={(e) => setFilters({...filters, minDuration: parseInt(e.target.value) || 0})}
+            <input
+              type="number"
+              value={filters.minDuration}
+              onChange={(e) => setFilters({ ...filters, minDuration: parseInt(e.target.value) || 0 })}
             />
           </div>
           <div className="settings-group">
             <label>Exclude Keywords (comma separated):</label>
-            <input 
-              type="text" 
-              value={filters.excludeKeywords.join(', ')} 
-              onChange={(e) => setFilters({...filters, excludeKeywords: e.target.value.split(',').map(s => s.trim()).filter(Boolean)})}
+            <input
+              type="text"
+              value={filters.excludeKeywords.join(', ')}
+              onChange={(e) => setFilters({ ...filters, excludeKeywords: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
             />
           </div>
         </div>
@@ -208,10 +208,10 @@ function App() {
               <button className="remove-btn" onClick={() => removeChannel(channel.id)}>&times;</button>
             </div>
           ))}
-          <button className="clear-btn" onClick={() => { 
+          <button className="clear-btn" onClick={() => {
             YouTubeService.clearCache();
-            setChannels([]); 
-            setCurrentVideo(null); 
+            setChannels([]);
+            setCurrentVideo(null);
           }}>Clear All</button>
         </div>
       )}
@@ -222,7 +222,7 @@ function App() {
       {currentVideo && (
         <div className="video-info">
           <YouTubePlayer videoId={currentVideo.id} onEnd={onVideoEnd} />
-          
+
           <div className="video-title-row">
             <div className="video-title">{currentVideo.title}</div>
             <div className="controls-row">
@@ -232,7 +232,7 @@ function App() {
               </label>
             </div>
           </div>
-          
+
           <button className="button shuffle-button" onClick={handleShuffle} disabled={loading}>
             {isPrefetching && !nextVideo ? 'Filtering Next...' : 'Another Video'}
           </button>
