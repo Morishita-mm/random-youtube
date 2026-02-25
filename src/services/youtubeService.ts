@@ -1,5 +1,4 @@
-const API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
-const API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY;
+const API_PROXY_URL = '/api/youtube';
 
 export interface YouTubeVideo {
   id: string;
@@ -19,6 +18,16 @@ export interface YouTubeChannel {
 export class YouTubeService {
   private static videoCache: Record<string, { videos: YouTubeVideo[], isFull: boolean, total: number }> = {};
 
+  private static async fetchFromProxy(endpoint: string, params: Record<string, string>): Promise<any> {
+    const queryString = new URLSearchParams(params).toString();
+    const response = await fetch(`${API_PROXY_URL}?endpoint=${endpoint}&${queryString}`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Failed to fetch from proxy: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
   /**
    * ISO 8601 期間文字列を秒数に変換します
    */
@@ -32,19 +41,22 @@ export class YouTubeService {
   }
 
   static async getChannelDetails(input: { type: string; value: string }): Promise<YouTubeChannel> {
-    let query = '';
-    if (input.type === 'id') query = `id=${input.value}`;
-    else if (input.type === 'handle') query = `forHandle=${input.value.substring(1)}`;
-    else if (input.type === 'user') query = `forUsername=${input.value}`;
+    let params: Record<string, string> = { part: 'id,snippet,contentDetails' };
+    if (input.type === 'id') params.id = input.value;
+    else if (input.type === 'handle') params.forHandle = input.value.substring(1);
+    else if (input.type === 'user') params.forUsername = input.value;
     else if (input.type === 'custom') {
-      const searchRes = await fetch(`${API_BASE_URL}/search?part=id&q=${input.value}&type=channel&maxResults=1&key=${API_KEY}`);
-      const searchData = await searchRes.json();
+      const searchData = await this.fetchFromProxy('search', {
+        part: 'id',
+        q: input.value,
+        type: 'channel',
+        maxResults: '1'
+      });
       if (!searchData.items?.length) throw new Error('Channel not found');
-      query = `id=${searchData.items[0].id.channelId}`;
+      params.id = searchData.items[0].id.channelId;
     }
 
-    const res = await fetch(`${API_BASE_URL}/channels?part=id,snippet,contentDetails&${query}&key=${API_KEY}`);
-    const data = await res.json();
+    const data = await this.fetchFromProxy('channels', params);
     if (!data.items?.length) throw new Error('Channel not found');
     
     const channel = data.items[0];
@@ -58,8 +70,11 @@ export class YouTubeService {
   }
 
   static async getPlaylistTotalItems(playlistId: string): Promise<number> {
-    const response = await fetch(`${API_BASE_URL}/playlistItems?part=id&playlistId=${playlistId}&maxResults=1&key=${API_KEY}`);
-    const data = await response.json();
+    const data = await this.fetchFromProxy('playlistItems', {
+      part: 'id',
+      playlistId,
+      maxResults: '1'
+    });
     return data.pageInfo.totalResults;
   }
 
@@ -92,8 +107,11 @@ export class YouTubeService {
       // 最初の50件から取得（キャッシュがあれば利用、なければ取得）
       let items = this.videoCache[playlistId].videos.slice(0, 50);
       if (items.length === 0) {
-        const response = await fetch(`${API_BASE_URL}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50&key=${API_KEY}`);
-        const data = await response.json();
+        const data = await this.fetchFromProxy('playlistItems', {
+          part: 'snippet,contentDetails',
+          playlistId,
+          maxResults: '50'
+        });
         const rawItems = data.items || [];
         
         // 動画の長さを取得するために video IDs を抽出
@@ -177,13 +195,20 @@ export class YouTubeService {
 
     let nextPageToken = '';
     // 最初の50件はすでに取得済みのはずだが、pageToken を取得するために1回リクエストが必要
-    const firstRes = await fetch(`${API_BASE_URL}/playlistItems?part=id&playlistId=${playlistId}&maxResults=50&key=${API_KEY}`);
-    const firstData = await firstRes.json();
+    const firstData = await this.fetchFromProxy('playlistItems', {
+      part: 'id',
+      playlistId,
+      maxResults: '50'
+    });
     nextPageToken = firstData.nextPageToken;
 
     while (nextPageToken) {
-      const response = await fetch(`${API_BASE_URL}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50&pageToken=${nextPageToken}&key=${API_KEY}`);
-      const data = await response.json();
+      const data = await this.fetchFromProxy('playlistItems', {
+        part: 'snippet,contentDetails',
+        playlistId,
+        maxResults: '50',
+        pageToken: nextPageToken
+      });
       
       const rawItems = data.items || [];
       const videoIds = rawItems.map((i: any) => i.contentDetails.videoId).join(',');
@@ -205,8 +230,10 @@ export class YouTubeService {
   }
 
   private static async getVideoDetails(videoIds: string): Promise<Record<string, { duration: string }>> {
-    const response = await fetch(`${API_BASE_URL}/videos?part=contentDetails&id=${videoIds}&key=${API_KEY}`);
-    const data = await response.json();
+    const data = await this.fetchFromProxy('videos', {
+      part: 'contentDetails',
+      id: videoIds
+    });
     const result: Record<string, { duration: string }> = {};
     data.items?.forEach((item: any) => {
       result[item.id] = { duration: item.contentDetails.duration };

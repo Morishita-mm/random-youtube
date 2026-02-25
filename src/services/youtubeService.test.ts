@@ -24,6 +24,7 @@ describe('YouTubeService', () => {
       ]
     };
     (fetch as any).mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve(mockResponse)
     });
 
@@ -31,7 +32,8 @@ describe('YouTubeService', () => {
     expect(result.id).toBe('UC-lHJZR3Gqxm24_Vd_AJ5Yw');
     expect(result.title).toBe('Test Channel');
     expect(result.playlistId).toBe('UUC-lHJZR3Gqxm24_Vd_AJ5Yw');
-    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('channels?part=id,snippet,contentDetails&id=UC-lHJZR3Gqxm24_Vd_AJ5Yw'));
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('endpoint=channels'));
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('id=UC-lHJZR3Gqxm24_Vd_AJ5Yw'));
   });
 
   it('getPlaylistTotalItems should return total items', async () => {
@@ -41,12 +43,14 @@ describe('YouTubeService', () => {
       }
     };
     (fetch as any).mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve(mockResponse)
     });
 
     const result = await YouTubeService.getPlaylistTotalItems('UUC-lHJZR3Gqxm24_Vd_AJ5Yw');
     expect(result).toBe(123);
-    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('playlistItems?part=id&playlistId=UUC-lHJZR3Gqxm24_Vd_AJ5Yw'));
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('endpoint=playlistItems'));
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('playlistId=UUC-lHJZR3Gqxm24_Vd_AJ5Yw'));
   });
 
   it('getRandomFilteredVideo in "all" mode should fetch first page and then background fetch', async () => {
@@ -59,6 +63,7 @@ describe('YouTubeService', () => {
     
     (fetch as any)
       .mockResolvedValueOnce({ // playlistItems (1st page)
+        ok: true,
         json: () => Promise.resolve({ 
           nextPageToken: 'token2',
           items: [{ 
@@ -68,14 +73,17 @@ describe('YouTubeService', () => {
         })
       })
       .mockResolvedValueOnce({ // videoDetails
+        ok: true,
         json: () => Promise.resolve({ 
           items: [{ id: 'vid1', contentDetails: { duration: 'PT10M' } }] 
         })
       })
       .mockResolvedValueOnce({ // background fetch - 1st page for token
+        ok: true,
         json: () => Promise.resolve({ nextPageToken: 'token2' })
       })
       .mockResolvedValueOnce({ // background fetch - 2nd page data
+        ok: true,
         json: () => Promise.resolve({ 
           nextPageToken: null,
           items: [{ 
@@ -85,6 +93,7 @@ describe('YouTubeService', () => {
         })
       })
       .mockResolvedValueOnce({ // background fetch - videoDetails for vid2
+        ok: true,
         json: () => Promise.resolve({ 
           items: [{ id: 'vid2', contentDetails: { duration: 'PT5M' } }] 
         })
